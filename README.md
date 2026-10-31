@@ -30,3 +30,13 @@ Não publique nem compartilhe `.env`, `terraform.tfvars`, estados Terraform, cha
 No modelo oficial do workshop, o Dia 1 cria RG, VNet, App Service, SQL, Private Endpoint e DNS pelo Portal. O Terraform do Dia 2 consulta esses recursos como dados e cria somente ACR, AKS e a conectividade nova em duas fases. Consulte [Bloqueios conhecidos e como resolver](docs/WORKSHOP.md#bloqueios-conhecidos-e-como-resolver) antes de executar um plano.
 
 Consulte também a [arquitetura de referência](docs/ARCHITECTURE.md).
+
+## Azure App Service (Linux)
+
+- **Runtime:** Node.js 22 ou posterior, conforme `engines.node` do `package.json`.
+- **Início:** `npm start` (`node src/server.js`); no contêiner, o `CMD` executa o mesmo arquivo.
+- **Porta:** a aplicação escuta em `PORT` (padrão `3000`). Na publicação por código, use o `PORT` fornecido pela plataforma. No contêiner, configure `WEBSITES_PORT=3000` ou a porta de destino equivalente.
+- **Health check:** configure o caminho `/api/health`; ele retorna `200` com o banco disponível e `503` em falha.
+- **Configuração:** use App Settings com `APP_ENV=production`, `NODE_ENV=production`, `DB_PROVIDER=sqlserver`, `AZURE_SQL_AUTH=managedIdentity`, `AZURE_SQL_SERVER` e `AZURE_SQL_DATABASE`. Valores inválidos de `DB_PROVIDER`, `AZURE_SQL_AUTH` ou `PORT` interrompem a inicialização sem expor o valor recebido.
+- **Identidade e banco:** habilite a identidade gerenciada e conceda as permissões SQL necessárias, inclusive para os ajustes de esquema executados na inicialização. Prepare as tabelas-base antes do primeiro início.
+- **Dados:** trocar `DB_PROVIDER` não migra dados existentes. SQLite local não é adequado para persistência durável nem para scale-out.

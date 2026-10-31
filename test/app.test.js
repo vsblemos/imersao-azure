@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -149,3 +150,46 @@ test('histórico e detalhe de pedidos são persistidos e isolados por sessão', 
   const noSession = await fetch(`${url}/api/orders`);
   assert.equal(noSession.status, 401);
 }));
+
+test('health retorna 503 quando o banco está indisponível', async () => {
+  const failing = { ...repository(), async health() { throw new Error('indisponível'); } };
+  const server = createApp(failing).listen(0);
+  await once(server, 'listening');
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/health`);
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { status: 'unhealthy' });
+  } finally { server.close(); }
+});
+
+const CONFIG_ENV_KEYS = ['PORT', 'DB_PROVIDER', 'AZURE_SQL_AUTH', 'AZURE_SQL_SERVER', 'AZURE_SQL_DATABASE', 'AZURE_SQL_USER', 'AZURE_SQL_PASSWORD'];
+// Carrega a configuração em processo isolado, a partir de pasta vazia, para que um .env local não interfira.
+function loadConfig(overrides) {
+  const env = { ...process.env };
+  for (const key of CONFIG_ENV_KEYS) delete env[key];
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-shop-config-'));
+  try {
+    return spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.resolve(__dirname, '../src/config.js'))})`], { cwd, env: { ...env, ...overrides }, encoding: 'utf8' });
+  } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+}
+
+test('configuração aceita valores padrão e configurações válidas do App Service', () => {
+  assert.equal(loadConfig({}).status, 0);
+  assert.equal(loadConfig({ PORT: '8080' }).status, 0);
+  assert.equal(loadConfig({ DB_PROVIDER: 'sqlserver', AZURE_SQL_AUTH: 'managedIdentity', AZURE_SQL_SERVER: 'example.invalid', AZURE_SQL_DATABASE: 'example' }).status, 0);
+});
+
+test('configuração inválida interrompe o início sem expor o valor recebido', () => {
+  const cases = [
+    [{ DB_PROVIDER: 'valor-invalido-xyz' }, 'DB_PROVIDER'],
+    [{ PORT: 'valor-invalido-xyz' }, 'PORT'],
+    [{ PORT: '70000' }, 'PORT'],
+    [{ DB_PROVIDER: 'sqlserver', AZURE_SQL_AUTH: 'valor-invalido-xyz', AZURE_SQL_SERVER: 'example.invalid', AZURE_SQL_DATABASE: 'example' }, 'AZURE_SQL_AUTH']
+  ];
+  for (const [overrides, name] of cases) {
+    const result = loadConfig(overrides);
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, new RegExp(`Configuração inválida: ${name}`));
+    assert.doesNotMatch(result.stderr, /valor-invalido-xyz|70000/);
+  }
+});
