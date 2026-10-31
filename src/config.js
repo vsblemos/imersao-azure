@@ -2,9 +2,14 @@ const path = require('node:path');
 require('dotenv').config();
 
 const root = path.resolve(__dirname, '..');
+const environment = process.env.APP_ENV || 'development';
 const dbProvider = process.env.DB_PROVIDER || 'sqlite';
 if (!['sqlite', 'sqlserver'].includes(dbProvider)) {
   throw new Error('Configuração inválida: DB_PROVIDER deve ser "sqlite" ou "sqlserver".');
+}
+
+if (environment === 'production' && dbProvider !== 'sqlserver') {
+  throw new Error('Em produção, DB_PROVIDER deve ser sqlserver.');
 }
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
@@ -34,7 +39,7 @@ if (dbProvider === 'sqlserver') {
 
 module.exports = {
   port,
-  environment: process.env.APP_ENV || 'development',
+  environment,
   dbProvider,
   sqlitePath: path.resolve(root, process.env.SQLITE_PATH || './data/loja.db'),
   sql,
